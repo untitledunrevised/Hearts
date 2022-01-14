@@ -35,15 +35,19 @@
 		Ace of hearts: 51
 */
 
-const int UU_SOUTH = 0;
-const int UU_WEST = 1;
-const int UU_NORTH = 2;
-const int UU_EAST = 3;
-
 static BOOL hascard[4][52];
 static int firstplayer, formalplayer_related;
 static int round, circle, maxround;
-static int score[4];
+static int score[12][4];
+
+static int exchange_card[4][3];
+
+static int formal_kind;
+static int formal_score[4], formalscore;
+static int formal_maxicard;
+static int formal_maxiplayer;
+static BOOL heartbreak;
+static BOOL roundover, gameover;
 
 DLLEXPORT void uu_hearts_init()
 {
@@ -51,41 +55,86 @@ DLLEXPORT void uu_hearts_init()
 	for(i = 0; i < 4; ++i)
 		for(j = 0; j < 13; ++j)
 			hascard[i][j] = FALSE;
+	for(i = 0; i < 12; ++i)
+		for(j = 0; j < 4; ++j)
+			score[i][j] = 0;
+	for(i = 0; i < 4; ++i)
+		for(j = 0; j < 3; ++j)
+			exchange_card[i][j] = -1;
+	for(i = 0; i < 4; ++i)
+		formal_score[i] = 0;
 	firstplayer = 0;
 	formalplayer_related = 0;
-	round = circle = 0;
+	round = circle = maxround = 0;
+	formal_kind = 0;
+	formalscore = 0;
+	formal_maxicard = -1;
+	formal_maxiplayer = 0;
+	heartbreak = FALSE;
+	roundover = gameover = FALSE;
+}
+
+DLLEXPORT BOOL uu_heart_setround(const int rounds)
+{
+	if(rounds & 0x03)
+	{
+		fprintf(stderr, "Error! It should be 4a rounds.");
+		return FALSE;
+	}
+	if(rounds > 12)
+	{
+		fprintf(stderr, "Error! 12 is the maximum.");
+		return FALSE;
+	}
+	if(rounds <= 0)
+	{
+		fprintf(stderr, "Are you kidding me?");
+		return FALSE;
+	}
+	maxround = rounds;
+	return TRUE;
 }
 
 DLLEXPORT void uu_hearts_start()
 {
+	
 	srand((unsigned int)time(NULL));
-	int i, cards[52];
+	int i, j, cards[52];
+	
+	for(i = 0; i < 4; ++i)
+		formal_score[i] = 0;
+	for(i = 0; i < 4; ++i)
+		for(j = 0; j < 13; ++j)
+			hascard[i][j] = FALSE;
+	formal_kind = 0;
+	formalscore = 0;
+	formal_maxicard = -1;
+	formal_maxiplayer = 0;
+	heartbreak = FALSE;
+	roundover = FALSE;
 	
 	//random shuffle
 	for(i = 0; i < 52; ++i)
 	{
 		cards[i] = i;
 		int rnd = rand() % (i + 1);
-		int tmp = p[i];
-		p[i] = p[rnd];
-		p[rnd] = tmp;
+		int tmp = cards[i];
+		cards[i] = cards[rnd];
+		cards[rnd] = tmp;
 	}
 	
 	for(i = 0; i < 52; ++i)
 	{
-		hascard[i & 3][cards[i]] = 1;
+		hascard[i & 3][cards[i]] = TRUE;
 		//The player who has "2 of clubs" is the first to play
 		if(cards[i] == TRUE)
+		{
 			firstplayer = i & 3;
+		}
 	}
 }
 
-static int exchange_card[4][3];
-
-DLLEXPORT BOOL uu_heart_need_exchange()
-{
-	return (round & 0x03) ^ 0x03;
-}
+DLLEXPORT BOOL uu_heart_need_exchange() { return (round & 0x03) ^ 0x03; }
 
 DLLEXPORT BOOL uu_heart_exchange_request(
 	const int playerid,
@@ -93,9 +142,9 @@ DLLEXPORT BOOL uu_heart_exchange_request(
 	const int secondcard,
 	const int thirdcard)
 {
-	if(card[playerid][firstcard] == 0
-	|| card[playerid][secondcard] == 0
-	|| card[playerid][thirdcard] == 0)
+	if(hascard[playerid][firstcard] == 0
+	|| hascard[playerid][secondcard] == 0
+	|| hascard[playerid][thirdcard] == 0)
 	{
 		fprintf(stderr, "Error! You dont have one of these cards!\n");
 		return FALSE;
@@ -117,25 +166,19 @@ DLLEXPORT void uu_heart_exchange()
 {
 	int relation = (round & 0x03) ^ ((round & 0x03) >> 1);
 	int playerid = 0, cardcnt = 0;
+	int absolution = (playerid + relation) & 0x03;
 	for(; playerid < 4; ++playerid)
 	{
 		for(; cardcnt < 3; ++cardcnt)
 		{
-			hascard[playerid][exchange_card[cardcnt]] = FALSE;
-			hascard[(playerid + relation) & 0x03][exchange_card[cardcnt]] = TRUE;
+			hascard[playerid][exchange_card[playerid][cardcnt]] = FALSE;
+			hascard[absolution][exchange_card[absolution][cardcnt]] = TRUE;
 			//The player who has "2 of clubs" is the first to play
-			if(exchange_card[cardcnt] == 0)
-				firstplayer = (playerid + relation) & 0x03;
+			if(exchange_card[absolution][cardcnt] == 0)
+				firstplayer = absolution;
 		}
 	}
 }
-
-static int formal_kind = 0;	//club
-static int formal_score[4], formalscore;
-static int formal_maxicard = -1;
-static int formal_maxiplayer = -1;
-static BOOL heartbreak = FALSE;
-static BOOL roundover, gameover;
 
 DLLEXPORT BOOL uu_heart_playcard(const int card)
 {
@@ -217,7 +260,7 @@ DLLEXPORT BOOL uu_heart_playcard(const int card)
 	//This is a heart card
 	if(card / 13 == 3)
 		++formalscore;
-	//This is Queen of Spade
+	//This is Queen of Spades
 	if(card == 36)
 		formalscore += 13;
 	
@@ -227,9 +270,9 @@ DLLEXPORT BOOL uu_heart_playcard(const int card)
 	if(formalplayer_related >= 4)
 	{
 		++circle;
-		formal_score[maxiplayer] += formalscore;
+		formal_score[formal_maxiplayer] += formalscore;
 		formalscore = 0;
-		firstplayer = maxiplayer;
+		firstplayer = formal_maxiplayer;
 		//this round is over
 		if(circle >= 13)
 		{
@@ -242,10 +285,12 @@ DLLEXPORT BOOL uu_heart_playcard(const int card)
 				{
 					int pp = 0;
 					for(; pp < 4; ++pp)
-						score[pp] += 26;
-					score[pid] -= 52;
+						score[round][pp] += 26;
+					score[round][pid] -= 52;
 				}
-				score[pid] += formal_score[pid];
+				score[round][pid] += formal_score[pid];
+				if(round)
+					score[round][pid] += score[round - 1][pid];
 			}
 			++round;
 			//game over
@@ -255,6 +300,8 @@ DLLEXPORT BOOL uu_heart_playcard(const int card)
 			}
 			circle = 0;
 		}
+		else
+			roundover = FALSE;
 		formalplayer_related = 0;
 	}
 	
@@ -262,4 +309,6 @@ DLLEXPORT BOOL uu_heart_playcard(const int card)
 	return TRUE;
 }
 
+DLLEXPORT BOOL uu_heart_roundover() { return roundover; }
 DLLEXPORT BOOL uu_heart_gameover() { return gameover; }
+DLLEXPORT int getscore(const int roundid, const int playerid) { return score[roundid - 1][playerid]; }
